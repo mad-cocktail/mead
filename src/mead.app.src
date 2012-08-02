@@ -1,0 +1,7 @@
+{application, mead,
+ [
+  {description, ""},
+  {vsn, git},
+  {registered, []},
+  {env, []}
+ ]}.
