@@ -28,10 +28,14 @@ handle_clause(FunName, Clause) ->
     Patterns = erl_syntax:clause_patterns(Clause),
     Arity = length(Patterns),
     NewPatterns = add_argument_variables(Patterns),
-    io:format(user, "~p~n", [Patterns]),
     Guard    = erl_syntax:clause_guard(Clause),
     Body     = erl_syntax:clause_body(Clause),
-    Replacer = my_function_handler(FunName, Arity),
+    F1       = me_handler(FunName, Arity),
+    F2       = fun_me_handler(FunName, Arity),
+    F3       = my_arguments_handler(Arity),
+    F4       = my_arity_handler(Arity),
+    F5       = my_name_handler(FunName),
+    Replacer = oneof_function([F1, F2, F3, F4, F5]),
     NewBody  = handle_group(Replacer, Body),
     erl_syntax:clause(NewPatterns, Guard, NewBody).
 
@@ -53,7 +57,7 @@ add_argument_variables([], _Pos, Acc) ->
     lists:reverse(Acc).
 
 
-my_function_handler(Name, Arity) ->
+me_handler(Name, Arity) ->
     fun(Node) ->
         case is_local_function(Node, me, Arity) of
             false -> Node;
@@ -65,20 +69,78 @@ my_function_handler(Name, Arity) ->
     end.
 
 
+%% @doc Replace `_' with `_N', where `N' is position.
 rewrite_arguments_underscope(Args) ->
     rewrite_arguments_underscope(Args, 1, []).
 
 
 rewrite_arguments_underscope([Arg|Args], Pos, Acc) ->
-    NewArg = 
+    NewArg =
         case erl_syntax:type(Arg) of
-            underscore -> variable(Pos); 
-            _Type -> Arg 
+            underscore -> variable(Pos);
+            _Type -> Arg
         end,
     rewrite_arguments_underscope(Args, Pos+1, [NewArg|Acc]);
 
 rewrite_arguments_underscope([], _Pos, Acc) ->
     lists:reverse(Acc).
+
+
+my_arguments_handler(Arity) ->
+    fun(Node) ->
+        case is_local_function(Node, my_arguments, 0) of
+            false -> Node;
+            true ->
+                Args = arguments_list(Arity),
+                erl_syntax:list(Args)
+        end
+    end.
+
+
+my_arity_handler(Arity) ->
+    fun(Node) ->
+        case is_local_function(Node, my_arity, 0) of
+            false -> Node;
+            true -> erl_syntax:integer(Arity)
+        end
+    end.
+
+
+-spec my_name_handler(Name) -> fun() when
+    Name :: erl_syntax:syntaxTree().
+
+my_name_handler(Name) ->
+    fun(Node) ->
+        case is_local_function(Node, my_name, 0) of
+            false -> Node;
+            true ->  Name
+        end
+    end.
+
+
+%% Replace `fun_me()' with fun `Name/Arity'.
+-spec fun_me_handler(Name, Arity) -> fun() when
+    Name  :: erl_syntax:syntaxTree(),
+    Arity :: non_neg_integer().
+
+fun_me_handler(Name, Arity) ->
+    fun(Node) ->
+        case is_local_function(Node, fun_me, 0) of
+            false -> Node;
+            true ->  erl_syntax:implicit_fun(Name, erl_syntax:integer(Arity))
+        end
+    end.
+
+
+%% @doc Returns `[_1,_2,_3]' as a term, wen Arity = 3.
+arguments_list(Arity) ->
+    arguments_list(Arity, []).
+
+
+arguments_list(0, Acc) ->
+    Acc;
+arguments_list(Arity, Acc) ->
+    arguments_list(Arity-1, [variable(Arity)|Acc]).
 
 
 variable(X) ->
@@ -98,19 +160,19 @@ postorder(F, Form) ->
         end,
     F(NewTree).
 
-                                                                    
-                                                                    
--spec is_local_function(Node, FunName, FunArity) -> boolean() when  
-    Node :: erl_syntax:syntaxTree(),                                
-    FunName :: atom(),                                              
-    FunArity :: non_neg_integer().                                  
-                                                                    
-is_local_function(Node, FunName, FunArity) ->                       
-    erl_syntax:type(Node) =:= application                           
-        andalso always(Op = erl_syntax:application_operator(Node))  
-        andalso erl_syntax:type(Op) =:= atom                        
-        andalso erl_syntax:atom_value(Op) =:= FunName               
-        andalso application_arity(Node) =:= FunArity.               
+
+
+-spec is_local_function(Node, FunName, FunArity) -> boolean() when
+    Node :: erl_syntax:syntaxTree(),
+    FunName :: atom(),
+    FunArity :: non_neg_integer().
+
+is_local_function(Node, FunName, FunArity) ->
+    erl_syntax:type(Node) =:= application
+        andalso always(Op = erl_syntax:application_operator(Node))
+        andalso erl_syntax:type(Op) =:= atom
+        andalso erl_syntax:atom_value(Op) =:= FunName
+        andalso application_arity(Node) =:= FunArity.
 
 
 always(_) -> true.
@@ -118,7 +180,15 @@ always(_) -> true.
 
 application_arity(AppNode) ->
     length(erl_syntax:application_arguments(AppNode)).
-        
-    
+
+
 handle_group(F, Group) ->
     [postorder(F, Subtree) || Subtree <- Group].
+
+
+oneof_function(Fs) ->
+    fun(Node) ->
+        Apply = fun(F, N) -> F(N) end,
+        lists:foldl(Apply, Node, Fs)
+    end.
+
