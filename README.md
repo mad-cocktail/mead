@@ -94,7 +94,7 @@ Arguments
 
 This parse transform adds the hidden arguments.
 
-Before:
+Source code:
 
 ```erlang
 map(X, [H|T]) ->
@@ -103,7 +103,7 @@ map(F, []) ->
     [].
 ```
 
-After:
+Code after this parse transform:
 
 ```erlang
 map(_1 = X, _2 = [H|T]) ->
