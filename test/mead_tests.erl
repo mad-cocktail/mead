@@ -53,6 +53,7 @@ functions(_,_) ->
 fun_hof() ->
     fun_me().
 
+
 -include_lib("eunit/include/eunit.hrl").
 
 -ifdef(TEST).
